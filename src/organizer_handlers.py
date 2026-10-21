@@ -11,6 +11,7 @@ logger = structlog.get_logger(__name__)
 async def kick_participant(message: Message):
     pass
 
+
 @org_router.message(Command("stats"))
 async def game_stats(message: Message):
     pass

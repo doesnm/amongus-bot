@@ -5,8 +5,12 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="5fd5b694-68f4-4255-b1fa-64ff28219382" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/src/models.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.dockerignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.gitattibutes" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Dockerfile" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docker-compose.yml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/organizer_handlers.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/organizer_handlers.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -47,11 +51,13 @@
     "node.js.detected.package.jshint": "true",
     "node.js.selected.package.jshint": "",
     "nodejs_package_manager_path": "npm",
-    "python.packages.toolwindow.project.migrated.to.right.top.v2": "true"
+    "python.packages.toolwindow.project.migrated.to.right.top.v2": "true",
+    "settings.editor.selected.configurable": "docker.compose.service.completion"
   }
 }]]></component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Projects\amogusbot" />
       <recent name="C:\Projects\amogusbot\src" />
     </key>
   </component>
