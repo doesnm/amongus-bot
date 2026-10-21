@@ -5,6 +5,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from fsm_states import StartFsm
+
 participant_router = Router()
 logger = structlog.get_logger(__name__)
 

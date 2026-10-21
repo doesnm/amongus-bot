@@ -1,13 +1,10 @@
 import asyncio
-from typing import Any
 
 import dotenv
 import structlog
 from aiogram import Dispatcher, Bot, Router
-from aiogram.types import Update
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlmodel import SQLModel
 
+from db import init_db, begin_sessionmaker
 from src.organizer_handlers import org_router
 from src.participant_handlers import participant_router
 from src.config import Config
@@ -18,22 +15,6 @@ dotenv.load_dotenv()
 logger = structlog.get_logger(__name__)
 root_router = Router(name="root_router")
 
-
-async def init_db(config: Config) -> async_sessionmaker[AsyncSession]:
-    engine = create_async_engine("sqlite+aiosqlite:///amongus_bot.db")
-
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
-
-    return async_sessionmaker(engine, expire_on_commit=False)
-
-
-async def begin_sessionmaker(handler: Any, event: Update, data: dict) -> None:
-    logger.info("Session maker has started")
-
-    async with data["db"].begin() as session:
-        data["session"] = session
-        return await handler(event, data)
 
 async def launch_bot():
     logger.info("Starting bot")

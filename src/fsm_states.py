@@ -1,9 +1,6 @@
+from aiogram.fsm.state import State, StatesGroup
 
 
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State
-
-
-class StartFsmContext(FSMContext):
+class StartFsm(StatesGroup):
     put_group = State()
 
