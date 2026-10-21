@@ -5,12 +5,19 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="5fd5b694-68f4-4255-b1fa-64ff28219382" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/src/amongus_bot/config.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/amongus_bot/fsm_states.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/amongus_bot/organizer_handlers.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/amongus_bot/participant_handlers.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/example.env" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/dev.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/pyproject.toml" beforeDir="false" afterPath="$PROJECT_DIR$/pyproject.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/amongus_bot/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/amongus_bot/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/amongus_bot/__init__.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/amongus_bot/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/amongus_bot/fsm_states.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/fsm_states.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/amongus_bot/main.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/amongus_bot/organizer_handlers.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/organizer_handlers.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/amongus_bot/participant_handlers.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/participant_handlers.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/uv.lock" beforeDir="false" afterPath="$PROJECT_DIR$/uv.lock" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -33,6 +40,9 @@
   "fromUser": false
 }]]></component>
   <component name="ProjectId" id="3KzqZ5S5jeDY9BJ8owqIoYZHZkF" />
+  <component name="ProjectLevelVcsManager">
+    <ConfirmationsSetting value="2" id="Add" />
+  </component>
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
@@ -46,10 +56,17 @@
     "git-widget-placeholder": "main",
     "ignore.virus.scanning.warn.message": "true",
     "last_opened_file_path": "C:/Projects/amogusbot",
+    "node.js.detected.package.jshint": "true",
+    "node.js.selected.package.jshint": "",
     "nodejs_package_manager_path": "npm",
     "python.packages.toolwindow.project.migrated.to.right.top.v2": "true"
   }
 }]]></component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Projects\amogusbot\src" />
+    </key>
+  </component>
   <component name="RunManager">
     <configuration default="true" type="PythonConfigurationType" factoryName="Python">
       <module name="amongus-bot" />

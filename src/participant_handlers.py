@@ -3,18 +3,19 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
+from sqlalchemy.ext.asyncio import AsyncSession
 
 participant_router = Router()
 logger = structlog.get_logger(__name__)
 
 
 @participant_router.message(Command("start"))
-async def start_message(message: Message, fsm_context: FSMContext):
-    pass
+async def start_message(message: Message, state: FSMContext, session: AsyncSession):
+    await message.answer("Я ЖИВОЙ")
 
 
 @participant_router.message(Command("target"))
-async def target_handler(message: Message, db):
+async def target_handler(message: Message, session: AsyncSession):
     pass # тут таргет текущего пользвателя.
 
 @participant_router.message(Command("kill"))
