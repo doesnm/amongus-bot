@@ -1,18 +1,18 @@
 import asyncio
 
+from colorama import initialise
 import dotenv
 import structlog
 from aiogram import Dispatcher, Bot, Router
 
-from db import init_db, begin_sessionmaker
+from src.logger import logger
+from src.db import begin_sessionmaker, init_db
 from src.organizer_handlers import org_router
 from src.participant_handlers import participant_router
 from src.config import Config
 
 dotenv.load_dotenv()
 
-
-logger = structlog.get_logger(__name__)
 root_router = Router(name="root_router")
 
 
@@ -21,14 +21,18 @@ async def launch_bot():
 
     config = Config()
 
-    structlog.configure_once(processors=[
-        structlog.processors.add_log_level,
-        structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S", utc=False),
-        structlog.processors.StackInfoRenderer(),
-        structlog.dev.ConsoleRenderer()
-            if config.environment_profile == "DEV" else structlog.processors.JSONRenderer(),
-    ])
-
+    structlog.configure_once(
+        processors=[
+            structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S", utc=False),
+            structlog.processors.StackInfoRenderer(),
+            (
+                structlog.dev.ConsoleRenderer()
+                if config.environment_profile == "DEV"
+                else structlog.processors.JSONRenderer()
+            ),
+        ]
+    )
 
     db = await init_db(config)
 
@@ -47,6 +51,7 @@ async def launch_bot():
         await dp.start_polling(bot)
     finally:
         await bot.session.close()
+
 
 def main():
     try:

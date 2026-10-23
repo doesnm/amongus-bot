@@ -1,11 +1,12 @@
+from collections.abc import Awaitable, Callable
 from typing import Any
 
-from aiogram.types import Update
+from aiogram.types import TelegramObject, Update
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession, create_async_engine
 from sqlmodel import SQLModel
 
-from config import Config
-from main import logger
+from src.config import Config
+from src.logger import logger
 
 
 async def init_db(config: Config) -> async_sessionmaker[AsyncSession]:
@@ -17,9 +18,14 @@ async def init_db(config: Config) -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(engine, expire_on_commit=False)
 
 
-async def begin_sessionmaker(handler: Any, event: Update, data: dict) -> None:
-    logger.info("Session maker has started")
+async def begin_sessionmaker(
+    handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+    event: TelegramObject,
+    data: dict[str, Any],
+) -> None:
+    if isinstance(event, Update):
+        logger.info("Session maker has started")
 
-    async with data["db"].begin() as session:
-        data["session"] = session
-        return await handler(event, data)
+        async with data["db"].begin() as session:
+            data["session"] = session
+    return await handler(event, data)
