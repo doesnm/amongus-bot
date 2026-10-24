@@ -1,8 +1,8 @@
 from aiogram.filters import Filter
-from aiogram.types import Message, TelegramObject
+from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import UserState
+from src.models import PermissionKey, UserState
 
 
 class IsRegistered(Filter):
@@ -14,3 +14,13 @@ class IsRegistered(Filter):
         user_id = user.id
 
         return bool(await session.get(UserState, user_id))
+
+
+class IsOrganizer(Filter):
+    async def __call__(self, message: Message, session: AsyncSession) -> bool:
+        user = message.from_user
+        if user is None:
+            return False
+
+        state = await session.get(UserState, user.id)
+        return state is not None and state.permission_key == PermissionKey.organizer

@@ -37,6 +37,8 @@ class UserVictim(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: int = Field(foreign_key="userstate.tg_id", nullable=False)
     victim_id: int = Field(foreign_key="userstate.tg_id", nullable=False)
+    active: bool = Field(default=True, index=True)
+    created_at: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.UTC))
 
 
 class KillCase(SQLModel, table=True):
@@ -44,7 +46,7 @@ class KillCase(SQLModel, table=True):
     from_user_id: int = Field(foreign_key="userstate.tg_id", nullable=False)
     status: KillCaseStatus = Field(nullable=False, default=KillCaseStatus.pending)
     evidence_id: str = Field(nullable=False)
-    sent_at: datetime.datetime = Field(default_factory=datetime.datetime.now)
+    sent_at: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.UTC))
     user_victim_id: uuid.UUID = Field(foreign_key="uservictim.id", nullable=False)
     approved_at: datetime.datetime | None
 

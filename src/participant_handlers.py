@@ -5,7 +5,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fsm_states import StartFsm
+from src import chain
+from src.fsm_states import StartFsm
 from src.filters import IsRegistered
 
 participant_router = Router()
@@ -17,9 +18,13 @@ async def start_message(message: Message, state: FSMContext, session: AsyncSessi
     await message.answer("Я ЖИВОЙ")
 
 
-@participant_router.message(Command("target"))
+@participant_router.message(Command("target"), IsRegistered())
 async def target_handler(message: Message, session: AsyncSession):
-    pass  # тут таргет текущего пользвателя.
+    target = await chain.get_target(session, message.from_user.id)
+    if target is None:
+        await message.answer("У тебя сейчас нет жертвы")
+        return
+    await message.answer(f"Твоя жертва: {target.full_name}")
 
 
 @participant_router.message(Command("kill"))

@@ -28,4 +28,5 @@ async def begin_sessionmaker(
 
         async with data["db"].begin() as session:
             data["session"] = session
+            return await handler(event, data)
     return await handler(event, data)
