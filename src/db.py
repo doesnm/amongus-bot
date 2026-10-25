@@ -12,9 +12,6 @@ from src.logger import logger
 async def init_db(config: Config) -> async_sessionmaker[AsyncSession]:
     engine = create_async_engine("sqlite+aiosqlite:///amongus_bot.db")
 
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
-
     return async_sessionmaker(engine, expire_on_commit=False)
 
 

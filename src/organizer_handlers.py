@@ -46,6 +46,7 @@ async def start_game(message: Message, session: AsyncSession, bot: Bot):
     stmt = select(UserState).where(
         UserState.permission_key == PermissionKey.participant,
         UserState.killed == False,  # noqa: E712
+        UserState.form_accepted == True,
     )
     players = list(await session.scalars(stmt))
 

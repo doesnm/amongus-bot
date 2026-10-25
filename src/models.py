@@ -2,7 +2,7 @@ import datetime
 import uuid
 from enum import Enum
 
-from sqlmodel import SQLModel, Field
+from sqlmodel import SQLModel, Field, Relationship
 
 
 class PermissionKey(str, Enum):
@@ -24,6 +24,11 @@ class GameStatus(str, Enum):
     Finalized = "finalized"
 
 
+class GameAndUsers(SQLModel, table=True):
+    user_id: int = Field(foreign_key="userstate.tg_id", nullable=False, primary_key=True)
+    game_id: uuid.UUID = Field(foreign_key="gamestate.id", nullable=False, primary_key=True)
+
+
 class UserState(SQLModel, table=True):
     tg_id: int = Field(primary_key=True, nullable=False, index=True)
     permission_key: PermissionKey = PermissionKey.user
@@ -31,6 +36,10 @@ class UserState(SQLModel, table=True):
     killed: bool = Field(default=False)
     full_name: str = Field(nullable=False)
     group: str = Field(nullable=False)
+
+    form_accepted: bool | None = Field(default=None, nullable=True)
+    reject_reason: str | None = Field(default=None, nullable=True)
+    games: list["GameState"] = Relationship(back_populates="playing_users", link_model=GameAndUsers)
 
 
 class UserVictim(SQLModel, table=True):
@@ -54,7 +63,8 @@ class KillCase(SQLModel, table=True):
 class GameState(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     status: GameStatus = GameStatus.InvitationsPending
-    game_has_ended: bool = False
+    game_has_ended: bool | None = None
     started_at: datetime.datetime | None = None
     ended_at: datetime.datetime | None = None
     forced_ending: bool | None = None
+    playing_users: list["UserState"] = Relationship(back_populates="games", link_model=GameAndUsers)
