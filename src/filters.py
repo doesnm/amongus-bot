@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models import PermissionKey, UserState
 
-
 class IsRegistered(Filter):
     async def __call__(self, message: Message, session: AsyncSession) -> bool:
         user = message.from_user
@@ -24,3 +23,11 @@ class IsOrganizer(Filter):
 
         state = await session.get(UserState, user.id)
         return state is not None and state.permission_key == PermissionKey.organizer
+
+
+class isSuperOrganizer(Filter): 
+    async def __call__(self, message: Message, config) -> bool: 
+        if message.from_user is None: 
+            return False 
+
+        return message.from_user.id == config.super_organizer

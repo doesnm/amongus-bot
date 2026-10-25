@@ -9,6 +9,7 @@ from src.logger import logger
 from src.db import begin_sessionmaker, init_db
 from src.organizer_handlers import org_router
 from src.participant_handlers import participant_router
+from src.super_organizer_handlers import super_org_router
 from src.config import Config
 
 dotenv.load_dotenv()
@@ -36,10 +37,10 @@ async def launch_bot():
 
     db = await init_db(config)
 
-    dp = Dispatcher(db=db)
+    dp = Dispatcher(db=db, config=config)
     dp.update.middleware.register(begin_sessionmaker)
 
-    dp.include_routers(org_router, participant_router)
+    dp.include_routers(super_org_router, org_router, participant_router)
 
     bot = Bot(
         token=config.bot_token,
