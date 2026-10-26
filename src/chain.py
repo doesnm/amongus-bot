@@ -1,4 +1,5 @@
 import random
+import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -46,7 +47,7 @@ async def chain_size(session: AsyncSession) -> int:
     return await session.scalar(stmt) or 0
 
 
-async def build_chain(session: AsyncSession, user_ids: Sequence[int]) -> list[UserVictim]:
+async def build_chain(session: AsyncSession, user_ids: Sequence[int], game_id: uuid.UUID) -> list[UserVictim]:
     if len(user_ids) < 2:
         raise ChainError("Для игры нужно минимум 2 участника")
     if await chain_size(session):
@@ -55,7 +56,7 @@ async def build_chain(session: AsyncSession, user_ids: Sequence[int]) -> list[Us
     order = list(user_ids)
     random.shuffle(order)
     links = [
-        UserVictim(user_id=hunter, victim_id=victim)
+        UserVictim(user_id=hunter, victim_id=victim, game_id=game_id)
         for hunter, victim in zip(order, order[1:] + order[:1])
     ]
     session.add_all(links)
@@ -77,7 +78,7 @@ async def apply_kill(session: AsyncSession, link_id) -> Relink:
     if victim_link is not None:
         victim_link.active = False
         if victim_link.victim_id != link.user_id:
-            session.add(UserVictim(user_id=link.user_id, victim_id=victim_link.victim_id))
+            session.add(UserVictim(user_id=link.user_id, victim_id=victim_link.victim_id, game_id=link.game_id))
             new_target_id = victim_link.victim_id
 
     await session.flush()
@@ -102,7 +103,7 @@ async def remove_from_chain(session: AsyncSession, user_id: int) -> Relink:
     hunter_id = incoming.user_id if incoming else None
     new_target_id = None
     if incoming and outgoing and incoming.user_id != outgoing.victim_id:
-        session.add(UserVictim(user_id=incoming.user_id, victim_id=outgoing.victim_id))
+        session.add(UserVictim(user_id=incoming.user_id, victim_id=outgoing.victim_id, game_id=incoming.game_id))
         new_target_id = outgoing.victim_id
 
     await session.flush()
@@ -140,8 +141,8 @@ async def revert_kill(session: AsyncSession, link_id, force: bool = False) -> Re
 
     if hunter_link is not None:
         hunter_link.active = False
-    session.add(UserVictim(user_id=hunter.tg_id, victim_id=victim.tg_id))
-    session.add(UserVictim(user_id=victim.tg_id, victim_id=current_target_id))
+    session.add(UserVictim(user_id=hunter.tg_id, victim_id=victim.tg_id, game_id=link.game_id))
+    session.add(UserVictim(user_id=victim.tg_id, victim_id=current_target_id, game_id=link.game_id))
     victim.killed = False
 
     await session.flush()

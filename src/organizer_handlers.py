@@ -2,17 +2,16 @@ import asyncio
 import datetime
 
 import structlog
-from aiogram import Bot, Router, session
-from aiogram.filters import Command, CommandObject, command
+from aiogram import Bot, Router, F
+from aiogram.exceptions import TelegramAPIError, TelegramRetryAfter
+from aiogram.filters import Command, CommandObject
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import Message
-from aiogram.exceptions import (
-    TelegramAPIError,
-    TelegramForbiddenError,
-    TelegramRetryAfter,
-)
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import Session, select
+from sqlmodel import select, func
 
+from src.models import KillCase, KillCaseStatus
 from src import chain
 from src.filters import IsOrganizer
 from src.models import GameState, GameStatus, PermissionKey, UserState
@@ -41,11 +40,8 @@ async def notify_relink(bot: Bot, session: AsyncSession, relink: chain.Relink) -
 
 @org_router.message(Command("start_game"))
 async def start_game(message: Message, session: AsyncSession, bot: Bot):
-    game = (await session.scalars(select(GameState))).first()
-    if game is None:
-        game = GameState()
-        session.add(game)
-    if game.status != GameStatus.InvitationsPending:
+    game = await GameState.current_game(session)
+    if game is None or game.status != GameStatus.InvitationsPending:
         await message.answer("Игра уже запущена или завершена")
         return
 
@@ -57,7 +53,7 @@ async def start_game(message: Message, session: AsyncSession, bot: Bot):
     players = list(await session.scalars(stmt))
 
     try:
-        links = await chain.build_chain(session, [p.tg_id for p in players])
+        links = await chain.build_chain(session, [p.tg_id for p in players], game_id=game.id)
     except chain.ChainError as e:
         await message.answer(str(e))
         return
@@ -67,9 +63,7 @@ async def start_game(message: Message, session: AsyncSession, bot: Bot):
 
     names = {p.tg_id: p.full_name for p in players}
     for link in links:
-        await notify(
-            bot, link.user_id, f"Игра началась! Твоя жертва: {names[link.victim_id]}"
-        )
+        await notify(bot, link.user_id, f"Игра началась! Твоя жертва: {names[link.victim_id]}")
 
     await message.answer(f"Игра запущена, участников: {len(players)}")
 
@@ -94,27 +88,66 @@ async def kick_participant(
     await message.answer(f"Игрок {user_id} исключён, цепочка восстановлена")
 
 
-@org_router.message(Command("stats"))
-async def game_stats(message: Message):
-    pass
+@org_router.message(Command("game_stats"))
+async def game_stats(message: Message, session: AsyncSession):
+    game = (await session.scalars(
+        select(GameState).where(GameState.status != GameStatus.Finalized)
+    )).first()
+    if game is None:
+        await message.answer("Активной игры нет")
+        return
+
+    players = list(await session.scalars(select(UserState).where(
+        UserState.permission_key == PermissionKey.participant,
+        UserState.form_accepted == True,
+    )))
+    alive = sum(not p.killed for p in players)
+
+    kills_by_status = dict((await session.execute(
+        select(KillCase.status, func.count()).group_by(KillCase.status)
+    )).all())
+
+    top = (await session.execute(
+        select(UserState.full_name, func.count(KillCase.id).label("kills"))
+        .join(KillCase, KillCase.from_user_id == UserState.tg_id)
+        .where(KillCase.status == KillCaseStatus.approved)
+        .group_by(UserState.full_name)
+        .order_by(func.count(KillCase.id).desc())
+        .limit(5)
+    )).all()
+
+    lines = [
+        f"Игра: {game.game_name} ({game.status.value})",
+        f"Начата: {game.started_at}" if game.started_at else "Ещё не начата",
+        f"Участников: {len(players)}, живых: {alive}, выбыло: {len(players) - alive}",
+        f"Убийств подтверждено: {kills_by_status.get(KillCaseStatus.approved, 0)}, "
+        f"на проверке: {kills_by_status.get(KillCaseStatus.pending, 0)}, "
+        f"оспорено: {kills_by_status.get(KillCaseStatus.disputed, 0)}",
+    ]
+    if top:
+        lines.append("\nТоп убийц:")
+        lines += [f"{i}. {name} - {kills}" for i, (name, kills) in enumerate(top, 1)]
+
+    await message.answer("\n".join(lines))
 
 
 @org_router.message(Command("export"))
-async def export(message: Message, session: Session):
+async def export(message: Message):
     pass
 
 
 @org_router.message(Command("broadcast"))
+@org_router.message(Command("broadcast"))
 async def broadcast(
-    message: Message, command: CommandObject, session: Session, bot: Bot
+    message: Message, command: CommandObject, session: AsyncSession, bot: Bot
 ):
     text = command.args
 
     if not text:
-        message.answer("Использовать так: /broadcast <текст>")
+        await message.answer("Использовать так: /broadcast <текст>")
         return
 
-    user_ids = session.exec(select(UserState.tg_id)).all()
+    user_ids = (await session.scalars(select(UserState.tg_id))).all()
 
     msg = await message.answer("Сообщение отправляется...")
 
@@ -126,9 +159,59 @@ async def broadcast(
             await notify(bot, user_id, text)
         await asyncio.sleep(0.05)
 
-    msg.edit_text("Сообщение отправленно!")
+    await msg.edit_text("Сообщение отправленно!")
 
 
-@org_router.message(Command("end_game"))
-async def end_game(message: Message):
-    pass
+class AcceptState(StatesGroup):
+    wait_to_prompt = State()
+
+
+@org_router.message(Command("end_game"), IsOrganizer())
+async def end_game(message: Message, session: AsyncSession, state: FSMContext):
+    if not await GameState.current_game(session):
+        return await message.answer("Текущая игра не идет")
+
+    await message.answer("Вы уверены что хотите закончить текущую игру? [Да/Нет]")
+
+    await state.set_state(AcceptState.wait_to_prompt)
+
+
+@org_router.message(AcceptState.wait_to_prompt)
+async def waiting_for_answer(message: Message, session: AsyncSession, state: FSMContext):
+    await state.clear()
+    if message.text not in ("Да", "Д", "Y"):
+        return await message.answer("Отмена закрытие текущей игры")
+
+    await message.answer("Игра была закончена, всем участникам была отправлена их стаистика, новая игра в ожидании")
+
+    game = await GameState.close_the_game(session)
+
+    query = select(UserState).where(UserState.games.any(id=game.id))
+    users = (await session.scalars(query)).all()
+
+    for user in users:
+        killed_count = await session.scalar(select(func.count()).select_from(KillCase).where(
+            KillCase.status == KillCaseStatus.approved, KillCase.from_user_id == user.tg_id
+        ))
+        text = (
+            f"Игра была закончена. вы убили {killed_count} человек потверждено, ГГ ВП"
+        )
+
+        try:
+            await message.bot.send_message(user.tg_id, text)
+        except TelegramAPIError:
+            logger.info(f"Telegram user blocked this bot: {user.tg_id}")
+
+    new_game = GameState(
+        status=GameStatus.InvitationsPending,
+        game_name="Цепочка убийств",
+        playing_users=[],
+    )
+
+    session.add(new_game)
+
+    await message.answer("ГГ ВП")
+
+    return
+
+

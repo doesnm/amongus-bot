@@ -1,7 +1,10 @@
 import datetime
 import uuid
+from datetime import timezone
 from enum import Enum
 
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import SQLModel, Field, Relationship
 
 
@@ -16,6 +19,7 @@ class KillCaseStatus(str, Enum):
     rejected = "rejected"
     pending = "pending"
     disputed = "disputed"
+    game_ended = "game_ended"
 
 
 class GameStatus(str, Enum):
@@ -42,12 +46,6 @@ class UserState(SQLModel, table=True):
     games: list["GameState"] = Relationship(back_populates="playing_users", link_model=GameAndUsers)
 
 
-class UserVictim(SQLModel, table=True):
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    user_id: int = Field(foreign_key="userstate.tg_id", nullable=False)
-    victim_id: int = Field(foreign_key="userstate.tg_id", nullable=False)
-    active: bool = Field(default=True, index=True)
-    created_at: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.UTC))
 
 
 class KillCase(SQLModel, table=True):
@@ -63,8 +61,41 @@ class KillCase(SQLModel, table=True):
 class GameState(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     status: GameStatus = GameStatus.InvitationsPending
+    game_name: str
     game_has_ended: bool | None = None
     started_at: datetime.datetime | None = None
     ended_at: datetime.datetime | None = None
     forced_ending: bool | None = None
     playing_users: list["UserState"] = Relationship(back_populates="games", link_model=GameAndUsers)
+
+    @staticmethod
+    async def close_the_game(session: AsyncSession):
+        game = await GameState.current_game(session)
+
+        game.status = GameStatus.Finalized
+        game.ended_at = datetime.datetime.now(timezone.utc)
+        game.forced_ending = True
+        game.game_has_ended = True
+
+        query = update(UserVictim).where(UserVictim.game_id == game.id).values(active=False)
+
+        await session.execute(query)
+
+        session.add(game)
+
+        return game
+
+    @staticmethod
+    async def current_game(session: AsyncSession):
+        stmt = select(GameState).where(GameState.status != GameStatus.Finalized)
+        return (await session.scalars(stmt)).first()
+
+
+
+class UserVictim(SQLModel, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    user_id: int = Field(foreign_key="userstate.tg_id", nullable=False)
+    victim_id: int = Field(foreign_key="userstate.tg_id", nullable=False)
+    active: bool = Field(default=True, index=True)
+    game_id: uuid.UUID = Field(foreign_key="gamestate.id", nullable=False)
+    created_at: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.UTC))

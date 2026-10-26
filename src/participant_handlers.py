@@ -11,7 +11,7 @@ from src import chain
 from src.config import get_config
 from src.fsm_states import StartFsm
 from src.filters import IsRegistered
-from src.models import PermissionKey, UserState
+from src.models import GameAndUsers, GameState, PermissionKey, UserState
 from src.utils import notify_new_form, NewFormCallbackData, NewFormTypes
 
 participant_router = Router()
@@ -77,19 +77,20 @@ async def enter_fullname(message: Message, state: FSMContext):
     await message.answer("Напиши свою группу (например SE-2614):")
 
 
-@participant_router.inline_query(F.query.startswith("new_form"))
-async def new_form_handler(inline_query: InlineQuery, session: AsyncSession):
-    data = NewFormCallbackData.unpack(inline_query.query)
+@participant_router.callback_query(NewFormCallbackData.filter())
+async def new_form_handler(inline_query: CallbackQuery, session: AsyncSession):
+    data = NewFormCallbackData.unpack(inline_query.data)
 
     user = await session.get(UserState, data.user_id)
     if data.answer_type == NewFormTypes.deny:
         await inline_query.bot.send_message(data.user_id, "Ваша заявка была отклонена")
 
         user.form_accepted = False
-
     else:
         await inline_query.bot.send_message(data.user_id, "Ваше участие было принято в текущую игру, ожидайте")
         user.form_accepted = True
+        user.permission_key = PermissionKey.participant
+        session.add(GameAndUsers(user_id=user.tg_id, game_id=(await GameState.current_game(session)).id))
 
 
     session.add(user)
