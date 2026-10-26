@@ -7,14 +7,15 @@ from aiogram.exceptions import TelegramAPIError, TelegramRetryAfter
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, func
 
-from src.models import KillCase, KillCaseStatus
+from src.models import KillCase, KillCaseStatus, UserVictim
 from src import chain
 from src.filters import IsOrganizer
 from src.models import GameState, GameStatus, PermissionKey, UserState
+from src.utils import KillReviewAction, KillReviewCallbackData, describe
 
 org_router = Router(name="org_router")
 org_router.message.filter(IsOrganizer())
@@ -88,6 +89,49 @@ async def kick_participant(
     await message.answer(f"Игрок {user_id} исключён, цепочка восстановлена")
 
 
+@org_router.callback_query(KillReviewCallbackData.filter(), IsOrganizer())
+async def kill_review(
+    callback: CallbackQuery, callback_data: KillReviewCallbackData, session: AsyncSession, bot: Bot
+):
+    case = await session.get(KillCase, callback_data.case_id)
+    await callback.message.edit_reply_markup(reply_markup=None)
+    if case is None or case.status not in (KillCaseStatus.pending, KillCaseStatus.disputed):
+        return await callback.answer("Этот отчёт уже рассмотрен", show_alert=True)
+
+    if callback_data.action == KillReviewAction.reject:
+        case.status = KillCaseStatus.rejected
+        await notify(bot, case.from_user_id, "Твой отчёт об убийстве отклонён организаторами")
+        await callback.message.reply(f"Отклонено ({callback.from_user.full_name})")
+        return await callback.answer()
+
+    try:
+        relink = await chain.apply_kill(session, case.user_victim_id)
+    except chain.ChainError as e:
+        case.status = KillCaseStatus.rejected
+        await notify(bot, case.from_user_id, f"Твой отчёт отклонён: {e}")
+        await callback.message.reply(f"Не засчитано: {e}")
+        return await callback.answer()
+
+    case.status = KillCaseStatus.approved
+    case.approved_at = datetime.datetime.now(datetime.UTC)
+    link = await session.get(UserVictim, case.user_victim_id)
+    await notify(bot, link.victim_id, "Организаторы засчитали твоё убийство. Ты выбываешь из игры")
+    await notify(bot, case.from_user_id, "Убийство засчитано!")
+    await notify_relink(bot, session, relink)
+    await callback.message.reply(f"Принято ({callback.from_user.full_name})")
+
+    if relink.new_target_id is None:
+        game = await GameState.close_the_game(session)
+        game.forced_ending = False
+        session.add(GameState(game_name="Цепочка убийств"))
+        winner = await session.get(UserState, relink.hunter_id)
+        await callback.message.answer(
+            f"Остался один игрок: {describe(winner)}\n"
+            "Игра завершена автоматически, новая игра ждёт регистрации"
+        )
+    await callback.answer()
+
+
 @org_router.message(Command("game_stats"))
 async def game_stats(message: Message, session: AsyncSession):
     game = (await session.scalars(
@@ -136,7 +180,6 @@ async def export(message: Message):
     pass
 
 
-@org_router.message(Command("broadcast"))
 @org_router.message(Command("broadcast"))
 async def broadcast(
     message: Message, command: CommandObject, session: AsyncSession, bot: Bot
@@ -194,7 +237,7 @@ async def waiting_for_answer(message: Message, session: AsyncSession, state: FSM
             KillCase.status == KillCaseStatus.approved, KillCase.from_user_id == user.tg_id
         ))
         text = (
-            f"Игра была закончена. вы убили {killed_count} человек потверждено, ГГ ВП"
+            f"Игра была закончена. вы убили {killed_count} человек потверждено, \n ГГ ВП"
         )
 
         try:

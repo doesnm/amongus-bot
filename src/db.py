@@ -7,12 +7,33 @@ from sqlmodel import SQLModel
 
 from src.config import Config
 from src.logger import logger
+from src.models import PermissionKey, UserState
 
 
 async def init_db(config: Config) -> async_sessionmaker[AsyncSession]:
     engine = create_async_engine("sqlite+aiosqlite:///amongus_bot.db")
 
     return async_sessionmaker(engine, expire_on_commit=False)
+
+
+async def ensure_root_org(db: async_sessionmaker[AsyncSession], config: Config) -> None:
+    if config.root_org_id is None:
+        return
+
+    async with db.begin() as session:
+        user = await session.get(UserState, config.root_org_id)
+        if user is None:
+            user = UserState(
+                tg_id=config.root_org_id,
+                tg_name="root_org",
+                full_name="Организатор",
+                group="-",
+                form_accepted=True,
+            )
+        user.permission_key = PermissionKey.organizer
+        session.add(user)
+
+        logger.info("root organizer added", tg_id=config.root_org_id)
 
 
 async def begin_sessionmaker(

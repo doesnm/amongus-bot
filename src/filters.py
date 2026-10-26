@@ -33,7 +33,4 @@ class IsOrganizer(Filter):
             state is not None and state.permission_key == PermissionKey.organizer
         )
 
-        if not is_organiser:
-            message.answer("Вы не являетесь организатором.")
-
         return is_organiser

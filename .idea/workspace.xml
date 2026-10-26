@@ -6,10 +6,16 @@
   <component name="ChangeListManager">
     <list default="true" id="5fd5b694-68f4-4255-b1fa-64ff28219382" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/chain.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/chain.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/example.env" beforeDir="false" afterPath="$PROJECT_DIR$/example.env" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/db.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/db.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/filters.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/filters.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/fsm_states.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/fsm_states.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/models.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/organizer_handlers.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/organizer_handlers.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/participant_handlers.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/participant_handlers.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

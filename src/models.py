@@ -86,7 +86,7 @@ class GameState(SQLModel, table=True):
         return game
 
     @staticmethod
-    async def current_game(session: AsyncSession):
+    async def current_game(session: AsyncSession) -> GameState:
         stmt = select(GameState).where(GameState.status != GameStatus.Finalized)
         return (await session.scalars(stmt)).first()
 
