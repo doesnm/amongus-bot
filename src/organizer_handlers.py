@@ -1,11 +1,17 @@
+import asyncio
 import datetime
 
 import structlog
-from aiogram import Bot, Router
-from aiogram.filters import Command, CommandObject
+from aiogram import Bot, Router, session
+from aiogram.filters import Command, CommandObject, command
 from aiogram.types import Message
+from aiogram.exceptions import (
+    TelegramAPIError,
+    TelegramForbiddenError,
+    TelegramRetryAfter,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import Session, select
 
 from src import chain
 from src.filters import IsOrganizer
@@ -61,7 +67,9 @@ async def start_game(message: Message, session: AsyncSession, bot: Bot):
 
     names = {p.tg_id: p.full_name for p in players}
     for link in links:
-        await notify(bot, link.user_id, f"Игра началась! Твоя жертва: {names[link.victim_id]}")
+        await notify(
+            bot, link.user_id, f"Игра началась! Твоя жертва: {names[link.victim_id]}"
+        )
 
     await message.answer(f"Игра запущена, участников: {len(players)}")
 
@@ -92,13 +100,33 @@ async def game_stats(message: Message):
 
 
 @org_router.message(Command("export"))
-async def export(message: Message):
+async def export(message: Message, session: Session):
     pass
 
 
 @org_router.message(Command("broadcast"))
-async def broadcast(message: Message):
-    pass
+async def broadcast(
+    message: Message, command: CommandObject, session: Session, bot: Bot
+):
+    text = command.args
+
+    if not text:
+        message.answer("Использовать так: /broadcast <текст>")
+        return
+
+    user_ids = session.exec(select(UserState.tg_id)).all()
+
+    msg = await message.answer("Сообщение отправляется...")
+
+    for user_id in user_ids:
+        try:
+            await notify(bot, user_id, text)
+        except TelegramRetryAfter as e:
+            await asyncio.sleep(e.retry_after)
+            await notify(bot, user_id, text)
+        await asyncio.sleep(0.05)
+
+    msg.edit_text("Сообщение отправленно!")
 
 
 @org_router.message(Command("end_game"))

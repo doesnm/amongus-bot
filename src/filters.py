@@ -13,7 +13,12 @@ class IsRegistered(Filter):
 
         user_id = user.id
 
-        return bool(await session.get(UserState, user_id))
+        is_registred = bool(await session.get(UserState, user_id))
+
+        if not is_registred:
+            message.answer("Пожалуйста зарегистрируйтесь.")
+
+        return is_registred
 
 
 class IsOrganizer(Filter):
@@ -23,4 +28,12 @@ class IsOrganizer(Filter):
             return False
 
         state = await session.get(UserState, user.id)
-        return state is not None and state.permission_key == PermissionKey.organizer
+
+        is_organiser = (
+            state is not None and state.permission_key == PermissionKey.organizer
+        )
+
+        if not is_organiser:
+            message.answer("Вы не являетесь организатором.")
+
+        return is_organiser
