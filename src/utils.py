@@ -3,11 +3,13 @@ from enum import Enum
 from html import escape
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from src.config import get_config
-from src.models import UserState
+from src.logger import logger
+from src.models import KillCase, UserState
 
 
 class NewFormTypes(str, Enum):
@@ -92,3 +94,54 @@ def kill_victim_keyboard(case_id: uuid.UUID) -> InlineKeyboardMarkup:
             callback_data=KillVictimCallbackData(answer=KillVictimAnswer.dispute, case_id=case_id).pack(),
         ),
     ]])
+
+
+def kill_report_text(hunter: UserState, victim: UserState, case: KillCase) -> str:
+    return (
+        "Отчёт об убийстве\n"
+        f"Убийца: {describe(hunter)}\n"
+        f"Жертва: {describe(victim)}\n"
+        f"Время: {case.sent_at.astimezone():%d.%m.%Y %H:%M}"
+    )
+
+
+async def edit_org_report(
+    bot: Bot,
+    case: KillCase,
+    text: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> None:
+    if case.org_message_id is None:
+        return
+    chat_id = get_config().org_chat_id
+    try:
+        if case.org_message_is_photo:
+            await bot.edit_message_caption(
+                chat_id=chat_id,
+                message_id=case.org_message_id,
+                caption=text,
+                reply_markup=reply_markup,
+            )
+        else:
+            await bot.edit_message_text(
+                text,
+                chat_id=chat_id,
+                message_id=case.org_message_id,
+                reply_markup=reply_markup,
+            )
+    except TelegramAPIError:
+        logger.warning("Failed to edit org report", case_id=str(case.id), exc_info=True)
+
+
+async def edit_victim_question(bot: Bot, case: KillCase, victim_id: int, text: str) -> bool:
+    """Replaces the victim's question and removes its buttons; False if it can't be edited."""
+    if case.victim_message_id is None:
+        return False
+    try:
+        await bot.edit_message_text(
+            text, chat_id=victim_id, message_id=case.victim_message_id, reply_markup=None
+        )
+    except TelegramAPIError:
+        logger.warning("Failed to edit victim message", case_id=str(case.id), exc_info=True)
+        return False
+    return True

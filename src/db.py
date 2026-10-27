@@ -7,7 +7,7 @@ from sqlmodel import SQLModel
 
 from src.config import Config
 from src.logger import logger
-from src.models import PermissionKey, UserState
+from src.models import GameState, PermissionKey, UserState
 
 
 async def init_db(config: Config) -> async_sessionmaker[AsyncSession]:
@@ -34,6 +34,13 @@ async def ensure_root_org(db: async_sessionmaker[AsyncSession], config: Config) 
         session.add(user)
 
         logger.info("root organizer added", tg_id=config.root_org_id)
+
+
+async def ensure_current_game(db: async_sessionmaker[AsyncSession]) -> None:
+    async with db.begin() as session:
+        if await GameState.current_game(session) is None:
+            game = GameState(game_name="Amongus")
+            session.add(game)
 
 
 async def begin_sessionmaker(

@@ -56,6 +56,9 @@ class KillCase(SQLModel, table=True):
     sent_at: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.UTC))
     user_victim_id: uuid.UUID = Field(foreign_key="uservictim.id", nullable=False)
     approved_at: datetime.datetime | None
+    org_message_id: int | None = Field(default=None)
+    org_message_is_photo: bool = Field(default=True)
+    victim_message_id: int | None = Field(default=None)
 
 
 class GameState(SQLModel, table=True):
@@ -83,6 +86,25 @@ class GameState(SQLModel, table=True):
 
         session.add(game)
 
+        return game
+
+    @staticmethod
+    async def start_next_game(session: AsyncSession, game_name: str) -> GameState:
+        """Opens a new game: revives everyone and carries accepted participants over."""
+        await session.execute(update(UserState).values(killed=False))
+
+        game = GameState(game_name=game_name)
+        session.add(game)
+
+        participants = await session.scalars(
+            select(UserState.tg_id).where(
+                UserState.permission_key == PermissionKey.participant,
+                UserState.form_accepted == True,  # noqa: E712
+            )
+        )
+        session.add_all(
+            GameAndUsers(user_id=user_id, game_id=game.id) for user_id in participants
+        )
         return game
 
     @staticmethod

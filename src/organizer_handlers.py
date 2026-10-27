@@ -1,21 +1,37 @@
 import asyncio
+import csv
 import datetime
+import io
+from collections import Counter
+from enum import Enum
 
 import structlog
 from aiogram import Bot, Router, F
 from aiogram.exceptions import TelegramAPIError, TelegramRetryAfter
 from aiogram.filters import Command, CommandObject
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
-from aiogram.types import CallbackQuery, Message
+from aiogram.filters.callback_data import CallbackData
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select, func
+from sqlmodel import col, select, func
 
-from src.models import KillCase, KillCaseStatus, UserVictim
+from src.models import GameAndUsers, KillCase, KillCaseStatus, UserVictim
 from src import chain
 from src.filters import IsOrganizer
 from src.models import GameState, GameStatus, PermissionKey, UserState
-from src.utils import KillReviewAction, KillReviewCallbackData, describe
+from src.utils import (
+    KillReviewAction,
+    KillReviewCallbackData,
+    describe,
+    edit_org_report,
+    edit_victim_question,
+    kill_report_text,
+)
 
 org_router = Router(name="org_router")
 org_router.message.filter(IsOrganizer())
@@ -54,7 +70,9 @@ async def start_game(message: Message, session: AsyncSession, bot: Bot):
     players = list(await session.scalars(stmt))
 
     try:
-        links = await chain.build_chain(session, [p.tg_id for p in players], game_id=game.id)
+        links = await chain.build_chain(
+            session, [p.tg_id for p in players], game_id=game.id
+        )
     except chain.ChainError as e:
         await message.answer(str(e))
         return
@@ -64,7 +82,9 @@ async def start_game(message: Message, session: AsyncSession, bot: Bot):
 
     names = {p.tg_id: p.full_name for p in players}
     for link in links:
-        await notify(bot, link.user_id, f"Игра началась! Твоя жертва: {names[link.victim_id]}")
+        await notify(
+            bot, link.user_id, f"Игра началась! Твоя жертва: {names[link.victim_id]}"
+        )
 
     await message.answer(f"Игра запущена, участников: {len(players)}")
 
@@ -91,17 +111,34 @@ async def kick_participant(
 
 @org_router.callback_query(KillReviewCallbackData.filter(), IsOrganizer())
 async def kill_review(
-    callback: CallbackQuery, callback_data: KillReviewCallbackData, session: AsyncSession, bot: Bot
+    callback: CallbackQuery,
+    callback_data: KillReviewCallbackData,
+    session: AsyncSession,
+    bot: Bot,
 ):
     case = await session.get(KillCase, callback_data.case_id)
     await callback.message.edit_reply_markup(reply_markup=None)
-    if case is None or case.status not in (KillCaseStatus.pending, KillCaseStatus.disputed):
+    if case is None or case.status not in (
+        KillCaseStatus.pending,
+        KillCaseStatus.disputed,
+    ):
         return await callback.answer("Этот отчёт уже рассмотрен", show_alert=True)
+
+    link = await session.get(UserVictim, case.user_victim_id)
+    hunter = await session.get(UserState, case.from_user_id)
+    victim = await session.get(UserState, link.victim_id)
+    report = kill_report_text(hunter, victim, case)
+    reviewer = callback.from_user.full_name
 
     if callback_data.action == KillReviewAction.reject:
         case.status = KillCaseStatus.rejected
-        await notify(bot, case.from_user_id, "Твой отчёт об убийстве отклонён организаторами")
-        await callback.message.reply(f"Отклонено ({callback.from_user.full_name})")
+        await notify(
+            bot, case.from_user_id, "Твой отчёт об убийстве отклонён организаторами"
+        )
+        await edit_victim_question(
+            bot, case, victim.tg_id, "Организаторы отклонили отчёт об убийстве"
+        )
+        await edit_org_report(bot, case, f"{report}\n\nОтклонено ({reviewer})")
         return await callback.answer()
 
     try:
@@ -109,21 +146,25 @@ async def kill_review(
     except chain.ChainError as e:
         case.status = KillCaseStatus.rejected
         await notify(bot, case.from_user_id, f"Твой отчёт отклонён: {e}")
-        await callback.message.reply(f"Не засчитано: {e}")
+        await edit_victim_question(
+            bot, case, victim.tg_id, "Отчёт об убийстве отклонён: цепочка изменилась"
+        )
+        await edit_org_report(bot, case, f"{report}\n\nНе засчитано: {e}")
         return await callback.answer()
 
     case.status = KillCaseStatus.approved
     case.approved_at = datetime.datetime.now(datetime.UTC)
-    link = await session.get(UserVictim, case.user_victim_id)
-    await notify(bot, link.victim_id, "Организаторы засчитали твоё убийство. Ты выбываешь из игры")
+    victim_text = "Организаторы засчитали твоё убийство. Ты выбываешь из игры"
+    if not await edit_victim_question(bot, case, victim.tg_id, victim_text):
+        await notify(bot, victim.tg_id, victim_text)
     await notify(bot, case.from_user_id, "Убийство засчитано!")
     await notify_relink(bot, session, relink)
-    await callback.message.reply(f"Принято ({callback.from_user.full_name})")
+    await edit_org_report(bot, case, f"{report}\n\nПринято ({reviewer})")
 
     if relink.new_target_id is None:
         game = await GameState.close_the_game(session)
         game.forced_ending = False
-        session.add(GameState(game_name="Цепочка убийств"))
+        await GameState.start_next_game(session, "Цепочка убийств")
         winner = await session.get(UserState, relink.hunter_id)
         await callback.message.answer(
             f"Остался один игрок: {describe(winner)}\n"
@@ -134,31 +175,43 @@ async def kill_review(
 
 @org_router.message(Command("game_stats"))
 async def game_stats(message: Message, session: AsyncSession):
-    game = (await session.scalars(
-        select(GameState).where(GameState.status != GameStatus.Finalized)
-    )).first()
+    game = (
+        await session.scalars(
+            select(GameState).where(GameState.status != GameStatus.Finalized)
+        )
+    ).first()
     if game is None:
         await message.answer("Активной игры нет")
         return
 
-    players = list(await session.scalars(select(UserState).where(
-        UserState.permission_key == PermissionKey.participant,
-        UserState.form_accepted == True,
-    )))
+    players = list(
+        await session.scalars(
+            select(UserState).where(
+                UserState.permission_key == PermissionKey.participant,
+                UserState.form_accepted == True,
+            )
+        )
+    )
     alive = sum(not p.killed for p in players)
 
-    kills_by_status = dict((await session.execute(
-        select(KillCase.status, func.count()).group_by(KillCase.status)
-    )).all())
+    kills_by_status = dict(
+        (
+            await session.execute(
+                select(KillCase.status, func.count()).group_by(KillCase.status)
+            )
+        ).all()
+    )
 
-    top = (await session.execute(
-        select(UserState.full_name, func.count(KillCase.id).label("kills"))
-        .join(KillCase, KillCase.from_user_id == UserState.tg_id)
-        .where(KillCase.status == KillCaseStatus.approved)
-        .group_by(UserState.full_name)
-        .order_by(func.count(KillCase.id).desc())
-        .limit(5)
-    )).all()
+    top = (
+        await session.execute(
+            select(UserState.full_name, func.count(KillCase.id).label("kills"))
+            .join(KillCase, KillCase.from_user_id == UserState.tg_id)
+            .where(KillCase.status == KillCaseStatus.approved)
+            .group_by(UserState.full_name)
+            .order_by(func.count(KillCase.id).desc())
+            .limit(5)
+        )
+    ).all()
 
     lines = [
         f"Игра: {game.game_name} ({game.status.value})",
@@ -175,9 +228,121 @@ async def game_stats(message: Message, session: AsyncSession):
     await message.answer("\n".join(lines))
 
 
+async def export_game(session: AsyncSession) -> GameState | None:
+    game = await GameState.current_game(session)
+    if game is not None and game.status != GameStatus.InvitationsPending:
+        return game
+
+    last_finished = await session.scalar(
+        select(GameState)
+        .where(GameState.status == GameStatus.Finalized)
+        .order_by(GameState.ended_at.desc())
+    )
+    return last_finished or game
+
+
+def build_export_csv(
+    game: GameState,
+    players: list[UserState],
+    links: list[UserVictim],
+    kills: list[KillCase],
+) -> bytes:
+    names = {p.tg_id: p.full_name for p in players}
+    first_victim: dict[int, int] = {}
+    current_victim: dict[int, int] = {}
+    for link in links:
+        first_victim.setdefault(link.user_id, link.victim_id)
+        if link.active:
+            current_victim[link.user_id] = link.victim_id
+
+    victim_by_link = {link.id: link.victim_id for link in links}
+    killed_by = {victim_by_link[k.user_victim_id]: k.from_user_id for k in kills}
+    kill_counts = Counter(k.from_user_id for k in kills)
+
+    def alive(player: UserState) -> bool:
+        # the killed flag is reset when a game ends, so finished games rely on kill reports
+        if game.status == GameStatus.Finalized:
+            return player.tg_id not in killed_by
+        return not player.killed
+
+    def name(user_id: int | None) -> str:
+        return names.get(user_id, "")
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(
+        [
+            "tg_id",
+            "username",
+            "full_name",
+            "group",
+            "alive",
+            "first_target",
+            "current_target",
+            "kills",
+            "killed_by",
+        ]
+    )
+    for p in players:
+        writer.writerow(
+            [
+                p.tg_id,
+                p.tg_name,
+                p.full_name,
+                p.group,
+                int(alive(p)),
+                name(first_victim.get(p.tg_id)),
+                name(current_victim.get(p.tg_id)),
+                kill_counts[p.tg_id],
+                name(killed_by.get(p.tg_id)),
+            ]
+        )
+
+    return buf.getvalue().encode("utf-8-sig")
+
+
 @org_router.message(Command("export"))
-async def export(message: Message):
-    pass
+async def export(message: Message, session: AsyncSession):
+    game = await export_game(session)
+    if game is None:
+        await message.answer("No games yet")
+        return
+
+    players = list(
+        await session.scalars(
+            select(UserState)
+            .join(GameAndUsers, GameAndUsers.user_id == UserState.tg_id)
+            .where(GameAndUsers.game_id == game.id)
+            .order_by(UserState.full_name)
+        )
+    )
+    if not players:
+        await message.answer("No players in this game")
+        return
+
+    links = list(
+        await session.scalars(
+            select(UserVictim)
+            .where(UserVictim.game_id == game.id)
+            .order_by(UserVictim.created_at)
+        )
+    )
+    kills = list(
+        await session.scalars(
+            select(KillCase).where(
+                KillCase.status == KillCaseStatus.approved,
+                col(KillCase.user_victim_id).in_([link.id for link in links]),
+            )
+        )
+    )
+
+    await message.answer_document(
+        BufferedInputFile(
+            build_export_csv(game, players, links, kills),
+            filename=f"export_{game.id.hex[:8]}.csv",
+        ),
+        caption=f"{game.game_name} ({game.status.value}), players: {len(players)}",
+    )
 
 
 @org_router.message(Command("broadcast"))
@@ -205,27 +370,60 @@ async def broadcast(
     await msg.edit_text("Сообщение отправленно!")
 
 
-class AcceptState(StatesGroup):
-    wait_to_prompt = State()
+class EndGameAnswer(str, Enum):
+    yes = "yes"
+    no = "no"
 
 
-@org_router.message(Command("end_game"), IsOrganizer())
-async def end_game(message: Message, session: AsyncSession, state: FSMContext):
+class EndGameCallbackData(CallbackData, prefix="end_game"):
+    answer: EndGameAnswer
+
+
+def end_game_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Да",
+                    callback_data=EndGameCallbackData(answer=EndGameAnswer.yes).pack(),
+                ),
+                InlineKeyboardButton(
+                    text="Нет",
+                    callback_data=EndGameCallbackData(answer=EndGameAnswer.no).pack(),
+                ),
+            ]
+        ]
+    )
+
+
+@org_router.message(Command("end_game"))
+async def end_game(message: Message, session: AsyncSession):
     if not await GameState.current_game(session):
         return await message.answer("Текущая игра не идет")
 
-    await message.answer("Вы уверены что хотите закончить текущую игру? [Да/Нет]")
+    await message.answer(
+        "Вы уверены что хотите закончить текущую игру?",
+        reply_markup=end_game_keyboard(),
+    )
 
-    await state.set_state(AcceptState.wait_to_prompt)
 
+@org_router.callback_query(EndGameCallbackData.filter(), IsOrganizer())
+async def waiting_for_answer(
+    callback: CallbackQuery,
+    callback_data: EndGameCallbackData,
+    session: AsyncSession,
+):
+    await callback.message.edit_reply_markup(reply_markup=None)
+    if callback_data.answer == EndGameAnswer.no:
+        await callback.message.answer("Отмена закрытие текущей игры")
+        return await callback.answer()
 
-@org_router.message(AcceptState.wait_to_prompt)
-async def waiting_for_answer(message: Message, session: AsyncSession, state: FSMContext):
-    await state.clear()
-    if message.text not in ("Да", "Д", "Y"):
-        return await message.answer("Отмена закрытие текущей игры")
+    if not await GameState.current_game(session):
+        return await callback.answer("Текущая игра не идет", show_alert=True)
 
-    await message.answer("Игра была закончена, всем участникам была отправлена их стаистика, новая игра в ожидании")
+    await callback.message.answer(
+        "Игра была закончена, всем участникам была отправлена их стаистика, новая игра в ожидании"
+    )
 
     game = await GameState.close_the_game(session)
 
@@ -233,28 +431,22 @@ async def waiting_for_answer(message: Message, session: AsyncSession, state: FSM
     users = (await session.scalars(query)).all()
 
     for user in users:
-        killed_count = await session.scalar(select(func.count()).select_from(KillCase).where(
-            KillCase.status == KillCaseStatus.approved, KillCase.from_user_id == user.tg_id
-        ))
-        text = (
-            f"Игра была закончена. вы убили {killed_count} человек потверждено, \n ГГ ВП"
+        killed_count = await session.scalar(
+            select(func.count())
+            .select_from(KillCase)
+            .where(
+                KillCase.status == KillCaseStatus.approved,
+                KillCase.from_user_id == user.tg_id,
+            )
         )
+        text = f"Игра была закончена. вы убили {killed_count} человек потверждено, \n ГГ ВП"
 
         try:
-            await message.bot.send_message(user.tg_id, text)
+            await callback.bot.send_message(user.tg_id, text)
         except TelegramAPIError:
             logger.info(f"Telegram user blocked this bot: {user.tg_id}")
 
-    new_game = GameState(
-        status=GameStatus.InvitationsPending,
-        game_name="Цепочка убийств",
-        playing_users=[],
-    )
+    await GameState.start_next_game(session, "Цепочка убийств")
 
-    session.add(new_game)
-
-    await message.answer("ГГ ВП")
-
-    return
-
-
+    await callback.message.answer("ГГ ВП")
+    await callback.answer()

@@ -6,7 +6,7 @@ import structlog
 from aiogram import Dispatcher, Bot, Router
 
 from src.logger import logger
-from src.db import begin_sessionmaker, ensure_root_org, init_db
+from src.db import begin_sessionmaker, ensure_current_game, ensure_root_org, init_db
 from src.organizer_handlers import org_router
 from src.participant_handlers import participant_router
 from src.config import Config
@@ -36,6 +36,7 @@ async def launch_bot():
 
     db = await init_db(config)
     await ensure_root_org(db, config)
+    await ensure_current_game(db)
 
     dp = Dispatcher(db=db)
     dp.update.middleware.register(begin_sessionmaker)
