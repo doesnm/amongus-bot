@@ -1,6 +1,7 @@
 import asyncio
 import csv
 import datetime
+import html
 import io
 from collections import Counter
 from enum import Enum
@@ -226,6 +227,114 @@ async def game_stats(message: Message, session: AsyncSession):
         lines += [f"{i}. {name} - {kills}" for i, (name, kills) in enumerate(top, 1)]
 
     await message.answer("\n".join(lines))
+
+
+PLAYERS_PAGE_SIZE = 10
+
+
+class PlayersPageCallbackData(CallbackData, prefix="players_page"):
+    page: int
+
+
+async def players_page_view(
+    session: AsyncSession, page: int
+) -> tuple[str, InlineKeyboardMarkup | None]:
+    where = (
+        UserState.permission_key == PermissionKey.participant,
+        UserState.form_accepted == True,  # noqa: E712
+    )
+    total = await session.scalar(select(func.count()).select_from(UserState).where(*where))
+    alive = await session.scalar(
+        select(func.count()).select_from(UserState).where(*where, UserState.killed == False)  # noqa: E712
+    )
+    pages = max(1, -(-total // PLAYERS_PAGE_SIZE))
+    page = min(max(page, 0), pages - 1)
+
+    players = list(
+        await session.scalars(
+            select(UserState)
+            .where(*where)
+            .order_by(col(UserState.killed), UserState.full_name)
+            .offset(page * PLAYERS_PAGE_SIZE)
+            .limit(PLAYERS_PAGE_SIZE)
+        )
+    )
+    ids = [p.tg_id for p in players]
+
+    targets = dict(
+        (
+            await session.execute(
+                select(UserVictim.user_id, UserState.full_name)
+                .join(UserState, UserState.tg_id == UserVictim.victim_id)
+                .where(UserVictim.user_id.in_(ids), UserVictim.active)
+            )
+        ).all()
+    )
+    kills = dict(
+        (
+            await session.execute(
+                select(KillCase.from_user_id, func.count())
+                .where(
+                    KillCase.from_user_id.in_(ids),
+                    KillCase.status == KillCaseStatus.approved,
+                )
+                .group_by(KillCase.from_user_id)
+            )
+        ).all()
+    )
+
+    lines = [
+        "<b>Участники игры</b>",
+        f"Всего: {total} | Живых: {alive} | Выбыло: {total - alive}",
+        f"Страница {page + 1} из {pages}",
+    ]
+    for number, p in enumerate(players, page * PLAYERS_PAGE_SIZE + 1):
+        status = "выбыл" if p.killed else "жив"
+        target = "-" if p.killed else html.escape(targets.get(p.tg_id, "-"))
+        lines.append(
+            f"\n<b>{number}. {html.escape(p.full_name)}</b> ({html.escape(p.group)})\n"
+            f"Статус: {status}\n"
+            f"Жертва: {target}\n"
+            f"Убийств: {kills.get(p.tg_id, 0)}\n"
+            f"ID: <code>{p.tg_id}</code>"
+        )
+    if not players:
+        lines.append("\nУчастников пока нет")
+
+    buttons = []
+    if page > 0:
+        buttons.append(
+            InlineKeyboardButton(
+                text="Назад",
+                callback_data=PlayersPageCallbackData(page=page - 1).pack(),
+            )
+        )
+    if page < pages - 1:
+        buttons.append(
+            InlineKeyboardButton(
+                text="Вперёд",
+                callback_data=PlayersPageCallbackData(page=page + 1).pack(),
+            )
+        )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[buttons]) if buttons else None
+    return "\n".join(lines), keyboard
+
+
+@org_router.message(Command("players"))
+async def players_list(message: Message, session: AsyncSession):
+    text, keyboard = await players_page_view(session, 0)
+    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+
+
+@org_router.callback_query(PlayersPageCallbackData.filter(), IsOrganizer())
+async def players_list_page(
+    callback: CallbackQuery,
+    callback_data: PlayersPageCallbackData,
+    session: AsyncSession,
+):
+    text, keyboard = await players_page_view(session, callback_data.page)
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await callback.answer()
 
 
 async def export_game(session: AsyncSession) -> GameState | None:

@@ -83,6 +83,7 @@ class GameState(SQLModel, table=True):
         query = update(UserVictim).where(UserVictim.game_id == game.id).values(active=False)
 
         await session.execute(query)
+        await session.execute(update(UserState).values(killed=False))
 
         session.add(game)
 

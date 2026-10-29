@@ -17,23 +17,24 @@ async def init_db(config: Config) -> async_sessionmaker[AsyncSession]:
 
 
 async def ensure_root_org(db: async_sessionmaker[AsyncSession], config: Config) -> None:
-    if config.root_org_id is None:
+    if not config.root_org_ids:
         return
 
     async with db.begin() as session:
-        user = await session.get(UserState, config.root_org_id)
-        if user is None:
-            user = UserState(
-                tg_id=config.root_org_id,
-                tg_name="root_org",
-                full_name="Организатор",
-                group="-",
-                form_accepted=True,
-            )
-        user.permission_key = PermissionKey.organizer
-        session.add(user)
+        for tg_id in config.root_org_ids:
+            user = await session.get(UserState, tg_id)
+            if user is None:
+                user = UserState(
+                    tg_id=tg_id,
+                    tg_name="root_org",
+                    full_name="Организатор",
+                    group="-",
+                    form_accepted=True,
+                )
+            user.permission_key = PermissionKey.organizer
+            session.add(user)
 
-        logger.info("root organizer added", tg_id=config.root_org_id)
+            logger.info("root organizer added", tg_id=tg_id)
 
 
 async def ensure_current_game(db: async_sessionmaker[AsyncSession]) -> None:

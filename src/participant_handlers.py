@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aiogram.exceptions import TelegramAPIError
 from sqlmodel import select, func, col
 
-from filters import IsOrganizer
 from src import chain
 from src.config import get_config
 from src.fsm_states import KillFsm, StartFsm
@@ -66,7 +65,19 @@ async def start_message(message: Message, state: FSMContext, session: AsyncSessi
             await message.answer("Привет! Напиши своё полное имя: ")
             await state.set_state(StartFsm.put_fullname)
         else:
-            await message.answer("привет")
+            if existing.form_accepted:
+                await message.answer(
+                    f"Вы уже зарегистрированы как {escape(existing.full_name)} "
+                    f"({escape(existing.group)}).\n"
+                    "Команды: /me - ваш статус, /target - ваша жертва, "
+                    "/kill - сообщить об убийстве, /rules - правила.",
+                    parse_mode="HTML",
+                )
+            else:
+                await message.answer(
+                    "Вы уже подали заявку на регистрацию. "
+                    "Дождитесь решения организаторов."
+                )
 
 
 @participant_router.message(StartFsm.put_group, F.text)
