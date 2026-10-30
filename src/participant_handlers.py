@@ -67,16 +67,18 @@ async def start_message(message: Message, state: FSMContext, session: AsyncSessi
         else:
             if existing.form_accepted:
                 await message.answer(
-                    f"Вы уже зарегистрированы как {escape(existing.full_name)} "
-                    f"({escape(existing.group)}).\n"
-                    "Команды: /me - ваш статус, /target - ваша жертва, "
-                    "/kill - сообщить об убийстве, /rules - правила.",
+                    "✅ <b>Вы уже зарегистрированы</b>\n\n"
+                    f"Игрок: {escape(existing.full_name)}\n"
+                    f"Группа: {escape(existing.group)}\n\n"
+                    "Все команды: /help",
                     parse_mode="HTML",
                 )
             else:
                 await message.answer(
+                    "⏳ <b>Заявка на рассмотрении</b>\n\n"
                     "Вы уже подали заявку на регистрацию. "
-                    "Дождитесь решения организаторов."
+                    "Дождитесь решения организаторов.",
+                    parse_mode="HTML",
                 )
 
 
@@ -191,7 +193,13 @@ async def target_handler(message: Message, session: AsyncSession):
         if target is None:
             await message.answer("У тебя сейчас нет жертвы")
             return
-        await message.answer(f"Твоя жертва: {target.full_name}")
+        await message.answer(
+            "🎯 <b>Твоя жертва</b>\n\n"
+            f"{escape(target.full_name)}\n"
+            f"Группа: {escape(target.group)}\n\n"
+            "Когда выполнишь задание, отправь /kill",
+            parse_mode="HTML",
+        )
 
 
 @participant_router.message(Command("kill"), IsRegistered())
@@ -221,8 +229,11 @@ async def kill_handler(message: Message, session: AsyncSession, state: FSMContex
 
     await state.set_state(KillFsm.wait_evidence)
     await message.answer(
-        f"Твоя жертва: {target.full_name}\n"
-        "Пришли совместное фото или кружок с ней. Любое другое сообщение отменит отчёт."
+        "🔪 <b>Отчёт об убийстве</b>\n\n"
+        f"Жертва: {escape(target.full_name)}\n\n"
+        "Пришли совместное фото или кружок с ней.\n"
+        "Любое другое сообщение отменит отчёт.",
+        parse_mode="HTML",
     )
 
 
@@ -277,24 +288,64 @@ async def profile_handler(message: Message, session: AsyncSession):
         )
     )
     victim = await chain.get_target(session, user.tg_id)
-    victim_name = (
-        f"{victim.tg_name}, ФИО: {victim.full_name}, Группа: {victim.group}" if victim else None
-    )
+    if victim:
+        target_text = (
+            f"{escape(victim.full_name)} ({escape(victim.group)})\n"
+            f"Telegram: {'@' + escape(victim.tg_name) if ' ' not in victim.tg_name else 'username нет'}"
+        )
+    else:
+        target_text = "нет"
 
     await message.answer(
-        f"{user.full_name}, {user.group}\n"
-        f"Статус: {'выбыл' if user.killed else 'жив'}\n"
-        f"Убийств: {kills}\n"
-        f"Текущяя цель: {victim_name if victim_name else 'Вашей цели нету'}"
+        "👤 <b>Твой профиль</b>\n\n"
+        f"Имя: {escape(user.full_name)}\n"
+        f"Группа: {escape(user.group)}\n"
+        f"Статус: {'💀 выбыл' if user.killed else '✅ жив'}\n"
+        f"Убийств: {kills}\n\n"
+        f"🎯 <b>Текущая цель</b>\n{target_text}",
+        parse_mode="HTML",
     )
 
 
-rules_global = "Это игра цепочки."
+rules_global = "📜 <b>Правила</b>\n\nЭто игра цепочки."
 
 
 @participant_router.message(Command("rules"))
 async def rules_handler(message: Message):
-    await message.answer(rules_global)
+    await message.answer(rules_global, parse_mode="HTML")
+
+
+@participant_router.message(Command("help"))
+async def help_handler(message: Message, session: AsyncSession):
+    lines = [
+        "📖 <b>Команды бота</b>",
+        "",
+        "<b>Для всех</b>",
+        "/start - регистрация",
+        "/rules - правила игры",
+        "/help - этот список",
+        "",
+        "<b>Для участников</b>",
+        "/me - твой профиль и статистика",
+        "/target - узнать свою жертву",
+        "/kill - отправить отчёт об убийстве",
+    ]
+
+    user = await session.get(UserState, message.from_user.id) if message.from_user else None
+    if user is not None and user.permission_key == PermissionKey.organizer:
+        lines += [
+            "",
+            "🛠 <b>Для организаторов</b>",
+            "/start_game - начать игру",
+            "/end_game - завершить игру",
+            "/players - список участников и жертв",
+            "/game_stats - статистика игры",
+            "/kick &lt;tg_id&gt; - исключить игрока",
+            "/broadcast &lt;текст&gt; - рассылка всем",
+            "/export - выгрузка результатов",
+        ]
+
+    await message.answer("\n".join(lines), parse_mode="HTML")
 
 
 # Хендлеры состояния стоят в конце, чтобы команды выше срабатывали раньше них

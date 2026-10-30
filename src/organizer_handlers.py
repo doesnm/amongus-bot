@@ -284,12 +284,12 @@ async def players_page_view(
     )
 
     lines = [
-        "<b>Участники игры</b>",
+        "👥 <b>Участники игры</b>",
         f"Всего: {total} | Живых: {alive} | Выбыло: {total - alive}",
         f"Страница {page + 1} из {pages}",
     ]
     for number, p in enumerate(players, page * PLAYERS_PAGE_SIZE + 1):
-        status = "выбыл" if p.killed else "жив"
+        status = "💀 выбыл" if p.killed else "✅ жив"
         target = "-" if p.killed else html.escape(targets.get(p.tg_id, "-"))
         lines.append(
             f"\n<b>{number}. {html.escape(p.full_name)}</b> ({html.escape(p.group)})\n"
